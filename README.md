@@ -47,5 +47,5 @@ Tested
 ======
 
 My workstation:
+![image](https://github.com/azagramac/linux-kernel/assets/571796/b914c882-90db-44e8-98a9-57e6c7eaf4d4)
 
-![image](https://github.com/azagramac/linux-kernel/blob/main/assets/capture.png)
