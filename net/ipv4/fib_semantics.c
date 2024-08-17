@@ -254,7 +254,7 @@ void free_fib_info(struct fib_info *fi)
 		return;
 	}
 
-	call_rcu(&fi->rcu, free_fib_info_rcu);
+	call_rcu_hurry(&fi->rcu, free_fib_info_rcu);
 }
 EXPORT_SYMBOL_GPL(free_fib_info);
 
@@ -2270,6 +2270,15 @@ void fib_select_path(struct net *net, struct fib_result *res,
 		fib_select_default(fl4, res);
 
 check_saddr:
-	if (!fl4->saddr)
-		fl4->saddr = fib_result_prefsrc(net, res);
+	if (!fl4->saddr) {
+		struct net_device *l3mdev;
+
+		l3mdev = dev_get_by_index_rcu(net, fl4->flowi4_l3mdev);
+
+		if (!l3mdev ||
+		    l3mdev_master_dev_rcu(FIB_RES_DEV(*res)) == l3mdev)
+			fl4->saddr = fib_result_prefsrc(net, res);
+		else
+			fl4->saddr = inet_select_addr(l3mdev, 0, RT_SCOPE_LINK);
+	}
 }

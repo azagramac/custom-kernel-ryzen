@@ -266,32 +266,49 @@ static void tcp_ao_key_free_rcu(struct rcu_head *head)
 	kfree_sensitive(key);
 }
 
-void tcp_ao_destroy_sock(struct sock *sk, bool twsk)
+static void tcp_ao_info_free_rcu(struct rcu_head *head)
 {
-	struct tcp_ao_info *ao;
+	struct tcp_ao_info *ao = container_of(head, struct tcp_ao_info, rcu);
 	struct tcp_ao_key *key;
 	struct hlist_node *n;
 
+	hlist_for_each_entry_safe(key, n, &ao->head, node) {
+		hlist_del(&key->node);
+		tcp_sigpool_release(key->tcp_sigpool_id);
+		kfree_sensitive(key);
+	}
+	kfree(ao);
+	static_branch_slow_dec_deferred(&tcp_ao_needed);
+}
+
+static void tcp_ao_sk_omem_free(struct sock *sk, struct tcp_ao_info *ao)
+{
+	size_t total_ao_sk_mem = 0;
+	struct tcp_ao_key *key;
+
+	hlist_for_each_entry(key,  &ao->head, node)
+		total_ao_sk_mem += tcp_ao_sizeof_key(key);
+	atomic_sub(total_ao_sk_mem, &sk->sk_omem_alloc);
+}
+
+void tcp_ao_destroy_sock(struct sock *sk, bool twsk)
+{
+	struct tcp_ao_info *ao;
+
 	if (twsk) {
 		ao = rcu_dereference_protected(tcp_twsk(sk)->ao_info, 1);
-		tcp_twsk(sk)->ao_info = NULL;
+		rcu_assign_pointer(tcp_twsk(sk)->ao_info, NULL);
 	} else {
 		ao = rcu_dereference_protected(tcp_sk(sk)->ao_info, 1);
-		tcp_sk(sk)->ao_info = NULL;
+		rcu_assign_pointer(tcp_sk(sk)->ao_info, NULL);
 	}
 
 	if (!ao || !refcount_dec_and_test(&ao->refcnt))
 		return;
 
-	hlist_for_each_entry_safe(key, n, &ao->head, node) {
-		hlist_del_rcu(&key->node);
-		if (!twsk)
-			atomic_sub(tcp_ao_sizeof_key(key), &sk->sk_omem_alloc);
-		call_rcu(&key->rcu, tcp_ao_key_free_rcu);
-	}
-
-	kfree_rcu(ao, rcu);
-	static_branch_slow_dec_deferred(&tcp_ao_needed);
+	if (!twsk)
+		tcp_ao_sk_omem_free(sk, ao);
+	call_rcu(&ao->rcu, tcp_ao_info_free_rcu);
 }
 
 void tcp_ao_time_wait(struct tcp_timewait_sock *tcptw, struct tcp_sock *tp)
@@ -933,6 +950,7 @@ tcp_inbound_ao_hash(struct sock *sk, const struct sk_buff *skb,
 	struct tcp_ao_key *key;
 	__be32 sisn, disn;
 	u8 *traffic_key;
+	int state;
 	u32 sne = 0;
 
 	info = rcu_dereference(tcp_sk(sk)->ao_info);
@@ -948,8 +966,9 @@ tcp_inbound_ao_hash(struct sock *sk, const struct sk_buff *skb,
 		disn = 0;
 	}
 
+	state = READ_ONCE(sk->sk_state);
 	/* Fast-path */
-	if (likely((1 << sk->sk_state) & TCP_AO_ESTABLISHED)) {
+	if (likely((1 << state) & TCP_AO_ESTABLISHED)) {
 		enum skb_drop_reason err;
 		struct tcp_ao_key *current_key;
 
@@ -988,6 +1007,9 @@ tcp_inbound_ao_hash(struct sock *sk, const struct sk_buff *skb,
 		return SKB_NOT_DROPPED_YET;
 	}
 
+	if (unlikely(state == TCP_CLOSE))
+		return SKB_DROP_REASON_TCP_CLOSE;
+
 	/* Lookup key based on peer address and keyid.
 	 * current_key and rnext_key must not be used on tcp listen
 	 * sockets as otherwise:
@@ -1001,7 +1023,7 @@ tcp_inbound_ao_hash(struct sock *sk, const struct sk_buff *skb,
 	if (th->syn && !th->ack)
 		goto verify_hash;
 
-	if ((1 << sk->sk_state) & (TCPF_LISTEN | TCPF_NEW_SYN_RECV)) {
+	if ((1 << state) & (TCPF_LISTEN | TCPF_NEW_SYN_RECV)) {
 		/* Make the initial syn the likely case here */
 		if (unlikely(req)) {
 			sne = tcp_ao_compute_sne(0, tcp_rsk(req)->rcv_isn,
@@ -1018,14 +1040,14 @@ tcp_inbound_ao_hash(struct sock *sk, const struct sk_buff *skb,
 			/* no way to figure out initial sisn/disn - drop */
 			return SKB_DROP_REASON_TCP_FLAGS;
 		}
-	} else if ((1 << sk->sk_state) & (TCPF_SYN_SENT | TCPF_SYN_RECV)) {
+	} else if ((1 << state) & (TCPF_SYN_SENT | TCPF_SYN_RECV)) {
 		disn = info->lisn;
 		if (th->syn || th->rst)
 			sisn = th->seq;
 		else
 			sisn = info->risn;
 	} else {
-		WARN_ONCE(1, "TCP-AO: Unexpected sk_state %d", sk->sk_state);
+		WARN_ONCE(1, "TCP-AO: Unexpected sk_state %d", state);
 		return SKB_DROP_REASON_TCP_AOFAILURE;
 	}
 verify_hash:
@@ -1963,8 +1985,10 @@ static int tcp_ao_info_cmd(struct sock *sk, unsigned short int family,
 		first = true;
 	}
 
-	if (cmd.ao_required && tcp_ao_required_verify(sk))
-		return -EKEYREJECTED;
+	if (cmd.ao_required && tcp_ao_required_verify(sk)) {
+		err = -EKEYREJECTED;
+		goto out;
+	}
 
 	/* For sockets in TCP_CLOSED it's possible set keys that aren't
 	 * matching the future peer (address/port/VRF/etc),

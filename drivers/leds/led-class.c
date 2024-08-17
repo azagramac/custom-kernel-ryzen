@@ -258,7 +258,6 @@ struct led_classdev *of_led_get(struct device_node *np, int index)
 
 	led_dev = class_find_device_by_of_node(&leds_class, led_node);
 	of_node_put(led_node);
-	put_device(led_dev);
 
 	return led_module_get(led_dev);
 }
@@ -552,12 +551,6 @@ int led_classdev_register_ext(struct device *parent,
 	led_init_core(led_cdev);
 
 #ifdef CONFIG_LEDS_TRIGGERS
-	/*
-	 * If no default trigger was given and hw_control_trigger is set,
-	 * make it the default trigger.
-	 */
-	if (!led_cdev->default_trigger && led_cdev->hw_control_trigger)
-		led_cdev->default_trigger = led_cdev->hw_control_trigger;
 	led_trigger_set_default(led_cdev);
 #endif
 

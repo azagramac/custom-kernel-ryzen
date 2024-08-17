@@ -25,6 +25,10 @@ Prepare environment
 Build
 =====
 
+    make clean
+    sudo cp -rf /boot/config-$(uname -r) .
+    sudo chown $USER:$USER config-$(uname -r)
+    mv config-$(uname -r) .config
     make menuconfig
     scripts/config --disable SYSTEM_TRUSTED_KEYS
     scripts/config --disable SYSTEM_REVOCATION_KEYS
@@ -46,5 +50,5 @@ Tested
 ======
 
 My workstation:
-![image](https://github.com/azagramac/linux-kernel/assets/571796/b914c882-90db-44e8-98a9-57e6c7eaf4d4)
+![image](https://github.com/user-attachments/assets/0f0d649d-0fad-46c6-8d41-e09fb82f29bd)
 

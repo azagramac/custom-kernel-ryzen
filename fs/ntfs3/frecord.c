@@ -1501,7 +1501,7 @@ int ni_insert_nonresident(struct ntfs_inode *ni, enum ATTR_TYPE type,
 
 	if (is_ext) {
 		if (flags & ATTR_FLAG_COMPRESSED)
-			attr->nres.c_unit = COMPRESSION_UNIT;
+			attr->nres.c_unit = NTFS_LZNT_CUNIT;
 		attr->nres.total_size = attr->nres.alloc_size;
 	}
 
@@ -2636,7 +2636,7 @@ int ni_read_frame(struct ntfs_inode *ni, u64 frame_vbo, struct page **pages,
 		goto out1;
 	}
 
-	pages_disk = kzalloc(npages_disk * sizeof(struct page *), GFP_NOFS);
+	pages_disk = kcalloc(npages_disk, sizeof(*pages_disk), GFP_NOFS);
 	if (!pages_disk) {
 		err = -ENOMEM;
 		goto out2;

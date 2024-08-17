@@ -296,7 +296,7 @@ static void fsl_lpspi_set_watermark(struct fsl_lpspi_data *fsl_lpspi)
 static int fsl_lpspi_set_bitrate(struct fsl_lpspi_data *fsl_lpspi)
 {
 	struct lpspi_config config = fsl_lpspi->config;
-	unsigned int perclk_rate, scldiv;
+	unsigned int perclk_rate, scldiv, div;
 	u8 prescale;
 
 	perclk_rate = clk_get_rate(fsl_lpspi->clk_per);
@@ -313,8 +313,10 @@ static int fsl_lpspi_set_bitrate(struct fsl_lpspi_data *fsl_lpspi)
 		return -EINVAL;
 	}
 
+	div = DIV_ROUND_UP(perclk_rate, config.speed_hz);
+
 	for (prescale = 0; prescale < 8; prescale++) {
-		scldiv = perclk_rate / config.speed_hz / (1 << prescale) - 2;
+		scldiv = div / (1 << prescale) - 2;
 		if (scldiv < 256) {
 			fsl_lpspi->config.prescale = prescale;
 			break;
@@ -553,7 +555,7 @@ static int fsl_lpspi_dma_transfer(struct spi_controller *controller,
 {
 	struct dma_async_tx_descriptor *desc_tx, *desc_rx;
 	unsigned long transfer_timeout;
-	unsigned long timeout;
+	unsigned long time_left;
 	struct sg_table *tx = &transfer->tx_sg, *rx = &transfer->rx_sg;
 	int ret;
 
@@ -594,9 +596,9 @@ static int fsl_lpspi_dma_transfer(struct spi_controller *controller,
 							       transfer->len);
 
 		/* Wait eDMA to finish the data transfer.*/
-		timeout = wait_for_completion_timeout(&fsl_lpspi->dma_tx_completion,
-						      transfer_timeout);
-		if (!timeout) {
+		time_left = wait_for_completion_timeout(&fsl_lpspi->dma_tx_completion,
+							transfer_timeout);
+		if (!time_left) {
 			dev_err(fsl_lpspi->dev, "I/O Error in DMA TX\n");
 			dmaengine_terminate_all(controller->dma_tx);
 			dmaengine_terminate_all(controller->dma_rx);
@@ -604,9 +606,9 @@ static int fsl_lpspi_dma_transfer(struct spi_controller *controller,
 			return -ETIMEDOUT;
 		}
 
-		timeout = wait_for_completion_timeout(&fsl_lpspi->dma_rx_completion,
-						      transfer_timeout);
-		if (!timeout) {
+		time_left = wait_for_completion_timeout(&fsl_lpspi->dma_rx_completion,
+							transfer_timeout);
+		if (!time_left) {
 			dev_err(fsl_lpspi->dev, "I/O Error in DMA RX\n");
 			dmaengine_terminate_all(controller->dma_tx);
 			dmaengine_terminate_all(controller->dma_rx);

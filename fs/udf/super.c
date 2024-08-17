@@ -336,7 +336,8 @@ static void udf_sb_free_bitmap(struct udf_bitmap *bitmap)
 	int nr_groups = bitmap->s_nr_groups;
 
 	for (i = 0; i < nr_groups; i++)
-		brelse(bitmap->s_block_bitmap[i]);
+		if (!IS_ERR_OR_NULL(bitmap->s_block_bitmap[i]))
+			brelse(bitmap->s_block_bitmap[i]);
 
 	kvfree(bitmap);
 }
@@ -630,7 +631,7 @@ static int udf_parse_param(struct fs_context *fc, struct fs_parameter *param)
 			if (!uopt->nls_map) {
 				errorf(fc, "iocharset %s not found",
 					param->string);
-				return -EINVAL;;
+				return -EINVAL;
 			}
 		}
 		break;
@@ -895,7 +896,7 @@ static int udf_load_pvoldesc(struct super_block *sb, sector_t block)
 	int ret;
 	struct timestamp *ts;
 
-	outstr = kmalloc(128, GFP_KERNEL);
+	outstr = kzalloc(128, GFP_KERNEL);
 	if (!outstr)
 		return -ENOMEM;
 
@@ -921,11 +922,11 @@ static int udf_load_pvoldesc(struct super_block *sb, sector_t block)
 
 	ret = udf_dstrCS0toChar(sb, outstr, 31, pvoldesc->volIdent, 32);
 	if (ret < 0) {
-		strcpy(UDF_SB(sb)->s_volume_ident, "InvalidName");
+		strscpy_pad(UDF_SB(sb)->s_volume_ident, "InvalidName");
 		pr_warn("incorrect volume identification, setting to "
 			"'InvalidName'\n");
 	} else {
-		strncpy(UDF_SB(sb)->s_volume_ident, outstr, ret);
+		strscpy_pad(UDF_SB(sb)->s_volume_ident, outstr);
 	}
 	udf_debug("volIdent[] = '%s'\n", UDF_SB(sb)->s_volume_ident);
 
