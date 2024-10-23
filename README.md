@@ -50,5 +50,5 @@ Tested
 ======
 
 My workstation:
-![image](https://github.com/user-attachments/assets/bd21b8b2-367b-4eba-82f0-a3837e42d6b8)
+![image](https://github.com/user-attachments/assets/2bf3d446-0242-4845-bd70-8fe85b8cb344)
 
