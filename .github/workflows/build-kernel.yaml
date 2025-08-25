@@ -19,14 +19,17 @@ jobs:
       - name: 🐙 Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential fakeroot ncurses-dev flex bison libssl-dev bc git dpkg-dev curl xz-utils
+          sudo apt-get install -y build-essential fakeroot ncurses-dev flex bison libssl-dev bc git dpkg-dev curl jq xz-utils
 
       - name: 🌐 Download latest stable kernel 6.x
         run: |
+          KERNEL_LATEST=$(curl -s https://www.kernel.org/releases.json | jq -r '.releases[] | select(.moniker=="stable") | .version')
+          echo "📝 Última versión estable: $KERNEL_LATEST"
+          
           mkdir -p kernel_build
           cd kernel_build
-          curl -O https://www.kernel.org/pub/linux/kernel/v6.x/linux-6.x.tar.xz
-          tar -xf linux-6.x.tar.xz --strip-components=1
+          curl -O https://www.kernel.org/pub/linux/kernel/v6.x/linux-$KERNEL_LATEST.tar.xz
+          tar -xf linux-$KERNEL_LATEST.tar.xz --strip-components=1
 
       - name: ⚙️ Apply custom .config
         run: cp .config kernel_build/.config
@@ -49,8 +52,4 @@ jobs:
         with:
           name: kernel-debs
           path: ../*.deb
-          if-no-files-found: ignore
-
-      - name: 🚀 Build complete
-        run: echo "✅ Kernel DEB packages built and uploaded successfully"
-        
+          
