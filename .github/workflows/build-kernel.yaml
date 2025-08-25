@@ -1,9 +1,9 @@
 name: 🐧 Build Ryzen9 Linux Kernel - DEB
 
 on:
-  schedule:
-    - cron: '0 20 * * 5'
   workflow_dispatch:
+  schedule:
+    - cron: '0 20 * * *'
 
 jobs:
   build:
@@ -21,15 +21,25 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential fakeroot ncurses-dev flex bison libssl-dev bc git dpkg-dev curl jq xz-utils
 
-      - name: 🌐 Download latest stable kernel 6.x
+      - name: 🌐 Get latest stable kernel version
+        id: kernel
         run: |
-          KERNEL_LATEST=$(curl -s https://www.kernel.org/releases.json | jq -r '.releases[] | select(.moniker=="stable") | .version')
-          echo "📝 Última versión estable: $KERNEL_LATEST"
-          
+          KERNEL_LATEST=$(curl -s https://www.kernel.org/releases.json | jq -r '.latest_stable.version')
+          KERNEL_URL=$(curl -s https://www.kernel.org/releases.json | jq -r --arg ver "$KERNEL_LATEST" '.releases[] | select(.version==$ver) | .source')
+          echo "📝 Latest stable kernel: $KERNEL_LATEST"
+          echo "🌍 Kernel source URL: $KERNEL_URL"
+          echo "KERNEL_LATEST=$KERNEL_LATEST" >> $GITHUB_ENV
+          echo "KERNEL_URL=$KERNEL_URL" >> $GITHUB_ENV
+          echo "## 🐧 Kernel Info" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- 🔖 Version: $KERNEL_LATEST" >> $GITHUB_STEP_SUMMARY
+          echo "- 🌐 URL: $KERNEL_URL" >> $GITHUB_STEP_SUMMARY
+
+      - name: ⬇️ Download and extract kernel
+        run: |
           mkdir -p kernel_build
-          cd kernel_build
-          curl -O https://www.kernel.org/pub/linux/kernel/v6.x/linux-$KERNEL_LATEST.tar.xz
-          tar -xf linux-$KERNEL_LATEST.tar.xz --strip-components=1
+          curl -L $KERNEL_URL | tar -xJ -C kernel_build --strip-components=1
+          echo "✅ Kernel source extracted to kernel_build/"
 
       - name: ⚙️ Apply custom .config
         run: cp .config kernel_build/.config
@@ -46,6 +56,7 @@ jobs:
           cd kernel_build
           make olddefconfig
           make -j$(nproc) deb-pkg LOCALVERSION=-ryzen9
+          echo "🎉 Kernel DEB packages built successfully"
 
       - name: 📦 Upload DEB artifacts
         uses: actions/upload-artifact@v4
