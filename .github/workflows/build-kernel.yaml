@@ -1,67 +1,56 @@
-name: 🐧 Build Linux Kernel Ryzen9 - 5950X
+name: 🐧 Build Ryzen9 Linux Kernel - DEB
 
 on:
   schedule:
-    - cron: '0 4 * * 1'
+    - cron: '0 20 * * 5'
   workflow_dispatch:
 
-env:
-  KERNEL_BASE_URL: https://www.kernel.org/pub/linux/kernel/v6.x
-  LOCALVERSION: "-ryzen9"
-
 jobs:
-  build-kernel:
-    runs-on: ubuntu-22.04
+  build:
+    runs-on: ubuntu-latest
     env:
-      DEBFULLNAME: ${{ secrets.DEBFULLNAME }}
-      DEBEMAIL: ${{ secrets.DEBEMAIL }}
+      GIT_NAME: ${{ secrets.DEBFULLNAME }}
+      GIT_MAIL: ${{ secrets.DEBEMAIL }}
 
     steps:
-      - name: 📥 Checkout repository
+      - name: 📥 Checkout custom kernel repo
         uses: actions/checkout@v4
 
-      - name: 🌐 Get latest stable 6.x kernel version
-        id: kernel-version
+      - name: 🐙 Install build dependencies
         run: |
-          echo "Fetching latest stable 6.x kernel version..."
-          KERNEL=$(curl -s https://www.kernel.org/releases.json | jq -r '.latest_stable.version')
-          echo "Latest kernel: $KERNEL"
-          echo "KERNEL_VERSION=$KERNEL" >> $GITHUB_OUTPUT
+          sudo apt-get update
+          sudo apt-get install -y build-essential fakeroot ncurses-dev flex bison libssl-dev bc git dpkg-dev curl xz-utils
 
-      - name: 📂 Prepare build directory
+      - name: 🌐 Download latest stable kernel 6.x
         run: |
           mkdir -p kernel_build
           cd kernel_build
-          echo "Build directory ready"
+          curl -O https://www.kernel.org/pub/linux/kernel/v6.x/linux-6.x.tar.xz
+          tar -xf linux-6.x.tar.xz --strip-components=1
 
-      - name: 📥 Download kernel source
+      - name: ⚙️ Apply custom .config
+        run: cp .config kernel_build/.config
+
+      - name: 📝 Configure git user for deb-pkg
         run: |
           cd kernel_build
-          KERNEL_TAR="linux-${{ steps.kernel-version.outputs.KERNEL_VERSION }}.tar.xz"
-          curl -LO ${{ env.KERNEL_BASE_URL }}/$KERNEL_TAR
-          tar -xf $KERNEL_TAR --strip-components=1
-          echo "Kernel source extracted"
+          git init
+          git config user.name "$GIT_NAME"
+          git config user.email "$GIT_MAIL"
 
-      - name: ⚙️ Copy current config
-        run: |
-          cp $GITHUB_WORKSPACE/.config kernel_build/.config
-
-      - name: 🖌️ Update config for ryzen9
+      - name: 🏗️ Build .deb packages
         run: |
           cd kernel_build
-          scripts/config --set-str LOCALVERSION ${{ env.LOCALVERSION }}
           make olddefconfig
+          make -j$(nproc) deb-pkg LOCALVERSION=-ryzen9
 
-      - name: 🏗️ Build Debian packages
-        run: |
-          cd kernel_build
-          make -j$(nproc) deb-pkg LOCALVERSION=${{ env.LOCALVERSION }}
-          echo "Kernel packages built"
-
-      - name: 📦 Upload .deb artifacts
+      - name: 📦 Upload DEB artifacts
         uses: actions/upload-artifact@v4
         with:
           name: kernel-debs
-          path: |
-            kernel_build/*.deb
-            
+          path: ../*.deb
+          if-no-files-found: ignore
+
+      - name: 🚀 Build complete
+        run: echo "✅ Kernel DEB packages built and uploaded successfully"
+        
