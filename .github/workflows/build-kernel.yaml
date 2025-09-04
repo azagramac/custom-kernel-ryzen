@@ -2,8 +2,6 @@ name: 🐧 Build Ryzen9 Linux Kernel - DEB
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '0 20 * * *'
 
 jobs:
   build:
